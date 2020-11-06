@@ -1,0 +1,310 @@
+---
+title: "Analysis of factors which effected the Brexit outcome"
+author: "Oscar Brooks (200869163)"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Libraries and Import
+```{r warning=FALSE, message=FALSE}
+library(ggplot2)
+library(caret)
+library(tidyverse)
+library(ggrepel)
+library(kableExtra)
+library(rpart)
+library(rpart.plot)
+```
+```{r warning=FALSE, message=FALSE}
+brexit_data = read_csv('brexit.csv')
+```
+
+# Introduction
+In this project we will investigate the United Kingdom's 2016 referendum to leave the EU using logistic regression and decision tree classification methods in R. The data we will be analysing consists of demographic charactaristics of 344 areas around the uk (electoral wards) and their corresponding brexit vote. This has been taken from The Guardian website and consists of the following variables: 
+
+* abc1: A social grade, the proportion of residents who are in the middle to upper class.
+* notBornUK: The proportion of residents who were born outside the UK.
+* medianIncome: The median income of residents.
+* medianAge: The median age of residents.
+* withHigherEd: The proportion of residents with any university-level education.
+* voteBrexit: Whether the electoral ward as a whole voted for or against Brexit.
+
+The first few rows of the data are presented here:
+```{r}
+head(brexit_data)
+```
+
+
+As we can see each variable is a positive decimal number except for 'voteBrexit' where this is either TRUE or FALSE. The demographic charactaristics are represented as the normalised values of the first five variables in the table. We will be conducting an analysis on what effects these demographic charactaristics (input variables) may on the overall Brexit vote for a given area (electoral ward).
+
+# Task 1:
+## Question 1: 
+### Fit a logistic regression model using all of the available inputs. Identify the direction of each effect from the fitted coefficients. Compare these with the plots shown on the Guardian website. Do they agree?
+
+Logistic regression is a method of binary classification, this is ideal for our case in which 'voteBrexit' is a binary decision. To fit our logistic regression model in R we use the $\textbf{glm()}$ function with $\textbf{family} = \textbf{binomial}$ to analyse the effects of the five input variables on the "voteBrexit" for each electoral ward. The $\textbf{summary()}$ function will be used to later fetch information about the data.
+
+```{r}
+Brexit_Model = glm( voteBrexit ~ abc1 + notBornUK + medianIncome
+                  + medianAge + withHigherEd , data = brexit_data, family = binomial)
+summary = summary(Brexit_Model)
+```
+
+From the Guardian website provided we are presented with the following 6 plots. These plot each of the areas with the demographic characteristic on the $y$ axis and the vote outcome on the $x$ axis. Also, voting population size is illustrated by the size of each point and the leave/remain result is shown by the blue/yellow colouring.
+
+```{r figurename, echo=FALSE, fig.align='center', fig.cap="Plots from Guardian Website, https://www.theguardian.com/politics/ng-interactive/2016/jun/23/eu-referendum-live-results-and-analysis", out.width = '70%'}
+knitr::include_graphics("Guardiangraphs.png")
+```
+
+\newpage 
+
+With the leave/remain outcome represented as a continuous output rather than a binary (true/false), the graphs seem to show negative gradients for 'Higher Education','Median Income','Social Grade' and 'Not Born in UK'. Conversly, positive gradients are apparent for 'Median Age' (and those without formal qualifications although, we do not have this variable in the csv file provided).
+
+Using the $\textbf{summary()}$ function to observe the coefficient estimates for each variable in our model we can see the magnitude at which this effects the voting outcome for a given local authority.
+
+```{r}
+coefdf2 = data.frame(summary$coefficients)
+kable(coefdf2 , "pandoc")
+```
+
+We can see the $\textbf{summary\$coefficients}$ table that our model is estimating positive gradients for 'Social Grade','Not Born in UK' and 'Median Age' whilst estimating negative gradients for 'Median Income' and 'Higher Education'. In this case a positive gradient would increase the likelihood of an area voting leave whereas a negative gradient would result in the variable influencing the area voting to stay. 
+
+By visually examining the Guardian plots it appears that some contradictions/disagreements could be drawn when compared with our logistic model coefficients for 'Social Grade' and perhaps also for 'Not Born in UK' as in both cases the graphs looks to produce a negative correlation, however our regression model shows they both produce a positive output. These disagreements could occur as the regression model is only concerned with whether an area chose to leave or not, whereas the guardian graphs showed the outcome vote as a spectrum, illustrating the marginal or overwhelming leave/remain votes for a given area. As more areas voted to leave rather than remain ($\frac{237}{344}$) causing a heavy clustering on the leave side of the graphs making them difficult to interpret.
+
+\newpage
+
+## Question 2:
+### Present the value of each coefficient estimate with a 95% confidence interval. Which input would you say has the strongest effect?
+
+```{r}
+zcon = qnorm(0.975)
+```
+Using the standard error and coefficient estimates provided in the $\textbf{summary()}$, we can create an approximate 95% confidence intervals for where we expect the coefficient estimates to lie. These confidence intervals are approximate as we assume the liklihood in normally distributed. As our sample size is large we can assume 
+$$95\% \text{Confidence Interval : Estimate} \pm \text{Standard Error} \times z_{2.5\%} $$
+We will use the the $\textbf{qnorm()}$ function we to return the critical z value.
+```{r}
+abc1_estimate = summary$coefficients[2]
+abc1_error = summary$coefficients[2,2]
+abc1_ci = abc1_estimate + c(-1,0, 1)*zcon*abc1_error
+
+notBornUK_estimate = summary$coefficients[3]
+notBornUK_error = summary$coefficients[3,2]
+notBornUK_ci = notBornUK_estimate + c(-1,0, 1)*zcon*notBornUK_error
+
+medianIncome_estimate = summary$coefficients[4]
+medianIncome_error = summary$coefficients[4,2]
+medianIncome_ci = medianIncome_estimate + c(-1,0,1)*zcon*medianIncome_error
+
+medianAge_estimate = summary$coefficients[5]
+medianAge_error = summary$coefficients[5,2]
+medianAge_ci = medianAge_estimate + c(-1,0, 1)*zcon*medianAge_error
+
+withHigherEd_estimate = summary$coefficients[6]
+withHigherEd_error = summary$coefficients[6,2]
+withHigherEd_ci = withHigherEd_estimate + c(-1,0,1)*zcon*withHigherEd_error
+```
+
+We will create a table of the confidence intervals:
+
+```{r}
+coefdf = data.frame(abc1_ci, notBornUK_ci, medianAge_ci ,medianIncome_ci, withHigherEd_ci)
+rownames(coefdf) = c("Min CI","Model Estimate","Max CI")
+kable(coefdf, digits = 20, col.names = c("abc1","notBornUK", "medianAge","medianIncome","withHigherEd") , "pandoc")
+```
+
+From the table we can conclude with approximately 95% confidence that none of the variables contain zero and thus all provide information when predicting 'Brexit Vote'. From these intervals we can interpret the minimum likely effect of a variable as its smallest absoulute value of its confidence interval.
+
+Hence the variables with the strongest to weakest effects are as follow:
+
+1. Higher Education
+2. Social Grade
+3. Median Age
+4. Median Income
+5. Not Born in UK
+
+It is worth noting that having now considered the minimum absolute value of the confidence intervals 'Median Age' is considered more appropriate an estimator that 'Median Income' even though in Part 1 Question 1 'Median Income' had the steeper coefficient gradient.
+
+## Question 3:
+### Using aic, perform a model selection to determine which factors are useful to predict the result of the vote. Use a ‘greedy’ input selection procedure, as follows: (i) select the best model with 1 input; (ii) fixing that input, select the best two-input model (i.e. try all the other 4 inputs with the one you selected first); (iii) select the best three-input model containing the first two inputs you chose, etc. At each stage evaluate the quality of fit using aic and stop if this gets worse.
+
+The Akaike Information Criterion (AIC) is a measure of how well a model performs in comparison to others and can be used to check if a model is overfit. Utilizing the log liklihood function, the lower the AIC value, the better. This penalises models with greater complexity by a factor of 2 points per variable 
+
+To identify the most useful variables when predicting the outcome of the Brexit vote we will use the 'greedy' input selection procedure we will first recognise which variable produces the best model.
+
+First we will fit models for each independant variable using the $\textbf{glm}$ function.
+```{r}
+Brexit_Model_abc1 = glm( voteBrexit ~ abc1 , data = brexit_data, family = binomial)
+Brexit_Model_notBornUK = glm( voteBrexit ~ notBornUK , data = brexit_data, family = binomial)
+Brexit_Model_medianIncome = glm( voteBrexit ~ medianIncome, data = brexit_data, family = binomial)
+Brexit_Model_medianAge = glm( voteBrexit ~ medianAge, data = brexit_data, family = binomial)
+Brexit_Model_withHigherEd = glm( voteBrexit ~ withHigherEd , data = brexit_data, family = binomial)
+```
+
+The AIC outputs for each model are given below.
+
+```{r}
+aic_abc1 = Brexit_Model_abc1[11]
+aic_notBornUK = Brexit_Model_notBornUK[11]
+aic_medianIncome = Brexit_Model_medianIncome[11]
+aic_medianAge = Brexit_Model_medianAge[11]
+aic_withHigherEd = Brexit_Model_withHigherEd[11]
+
+coefdf3 = data.frame(aic_abc1, aic_notBornUK, aic_medianIncome, aic_medianAge, aic_withHigherEd)
+rownames(coefdf3) = "AIC values"
+kable(coefdf3, col.names = c("abc1","notBornUK", "medianAge","medianIncome","withHigherEd") , "pandoc")
+```
+
+
+As we can see 'withHigherEd' produces the lowest aic value and so we will fix this value to select the best two-input model with the remaining variables.
+
+```{r}
+Brexit_Model_withHigherEd1 = glm( voteBrexit ~ withHigherEd + abc1, data = brexit_data, family = binomial)
+Brexit_Model_withHigherEd2 = glm( voteBrexit ~ withHigherEd + notBornUK, data = brexit_data, family = binomial)
+Brexit_Model_withHigherEd3 = glm( voteBrexit ~ withHigherEd + medianIncome , data = brexit_data, family = binomial)
+Brexit_Model_withHigherEd4 = glm( voteBrexit ~ withHigherEd + medianAge , data = brexit_data, family = binomial)
+
+aic_withHigherEd1 = Brexit_Model_withHigherEd1[11]
+aic_withHigherEd2 = Brexit_Model_withHigherEd2[11]
+aic_withHigherEd3 = Brexit_Model_withHigherEd3[11]
+aic_withHigherEd4 = Brexit_Model_withHigherEd4[11]
+```
+
+Below are the aic values for 'withHigherED' and each other input variable combination.
+
+```{r}
+coefdf5 = data.frame(aic_withHigherEd1, aic_withHigherEd2, aic_withHigherEd3, aic_withHigherEd4)
+rownames(coefdf5) = "AIC values withHigherEd"
+kable(coefdf5, col.names = c("abc1","notBornUK","medianIncome", "medianAge") , "pandoc")
+
+```
+
+The best two-input model produced here uses 'Higher Education and Social Grade' for its two inputs. Fixing these we will find the best three-input model.
+
+```{r}
+Brexit_Model_withHigherEd11 = glm( voteBrexit ~ withHigherEd + abc1 + notBornUK, data = brexit_data, family = binomial)
+Brexit_Model_withHigherEd22 = glm( voteBrexit ~ withHigherEd + abc1 + medianIncome, data = brexit_data, family = binomial)
+Brexit_Model_withHigherEd33 = glm( voteBrexit ~ withHigherEd + abc1 + medianAge , data = brexit_data, family = binomial)
+
+aic_withHigherEd11 = Brexit_Model_withHigherEd11[11]
+aic_withHigherEd22 = Brexit_Model_withHigherEd22[11]
+aic_withHigherEd33 = Brexit_Model_withHigherEd33[11]
+
+coefdf4 = data.frame(aic_withHigherEd11, aic_withHigherEd22, aic_withHigherEd33)
+rownames(coefdf4) = ("AIC values withHigherEd + abc1")
+kable(coefdf4 ,col.names = c("+notBornUK","+medianIncome","+medianAge") ,"pandoc")
+
+```
+
+With AIC continuing to fall we proceed with our selection process we add 'MedianAge' to our fixed variables in search of the best 4-input model. 
+
+```{r}
+Brexit_Model_withHigherEd111 = glm( voteBrexit ~ withHigherEd + abc1 + notBornUK + medianAge, data = brexit_data, family = binomial)
+summary_withHigherEd111 = summary(Brexit_Model_withHigherEd111)
+
+Brexit_Model_withHigherEd222 = glm( voteBrexit ~ withHigherEd + abc1 + medianIncome + medianAge, data = brexit_data, family = binomial)
+summary_withHigherEd222 = summary(Brexit_Model_withHigherEd222)
+
+aic_withHigherEd111 = Brexit_Model_withHigherEd111[11]
+aic_withHigherEd222 = Brexit_Model_withHigherEd222[11]
+
+coefdf6 = data.frame(aic_withHigherEd111, aic_withHigherEd222)
+rownames(coefdf6) = ("AIC values withHigherEd + abc1 + medianAge:")
+kable(coefdf6, col.names = c("notBornUK","medianIncome") , "pandoc")
+```
+
+These values are once again lower than the previous three-input model and we would proceed to create a five-input model, but thankfully this has already been done, and checking again from the summary we see that a five-input model produces the lowest AIC value.  
+
+```{r}
+print(paste("Five-input AIC:", summary[5]))
+```
+
+Having performed the 'greedy input selection procedure' we have tested against model overfitting as each additional variable continued to decrease the AIC value resulting in the best model to contain all five given inputs. As we fixed the most useful variables for prediction with each iteration this determines the following order in which each variable is most useful for prediction.
+
+1. Higher Education
+2. Social Grade
+3. Median Age
+4. Median Income
+5. Not Born in UK
+
+Which is consistent with the order produced of importance/strongest effect established by confidence intervals in Question 2.
+
+# Task 2:
+## Question 1:
+### Use the rpart package to create a decision tree classification model. Visualise your model and intepret the fitted model.
+
+Using $\textbf{rpart}$ to create our decision tree we have visualised the tree using a $\textbf{rpart.plot()}$. Decision trees split on variables with the highest Information Gain or the lowest Gini Impurity which is used as default in $\textbf{rpart}$. Gini Impurity is a measure of how pure the resulting two split nodes are, minimising Gini Impurity when making a split maximises the accuracy of the split.
+
+Gini Impurity is defined as 
+$$G = \rho_A \rho_B = \rho_A (1- \rho_A)$$
+where $\rho_A$ is the probability of choosing an item being of class A and $\rho_b = (1-\rho_A)$ is the probability an item being of class B.
+```{r}
+brexit_tree = rpart(voteBrexit ~ abc1 + notBornUK + medianIncome + medianAge + withHigherEd, data=brexit_data, method='class')
+rpart.plot(brexit_tree, main = "", extra = 102, digits = 4)
+```
+
+As we can see the root of the tree is split on (withHigherED >= 0.47) classifying 19% of the dataset with 86% ($\frac{57}{66}$) accuracy when true. This is important to note as $\textbf{rpart}$ identifies the value of the weight which minimises the average Gini Impurity of the remaining two nodes implying 'Higher Education' produces the lowest Gini Impurity on the dataset as a whole.
+
+With (withHigherED < 0.47), the decision tree next splits on (notBornUK >= 0.43) classifying only 3% of our dataset with 60% accuracy when true. 
+
+With (notBornUK < 0.43) we again split on (withHigherED >= 0.31) we predict 52% of our dataset with an 88% accuracy when false. In this step 'Higher Education' classifies over half the dataset with a good accuracy.
+
+With (withHigherED >= 0.31) being true we then split on (abc1 < 0.41) classifying 5% of the dataset with 65% accuracy when true and 21% of the dataset with 85% accuracy when false. 
+
+Taking the weighted average of how accurately each portion of the dataset was predicted the decision tree,we find the decision tree has an average accuracy of $84.89\%$. 
+
+Given that this model has a depth of four and classifies the dataset with a strong accuracy this seems to be a good fit to the data without being overly complex which would likely lead to overfitting. The decision tree is easy to follow similar to a flowchart.
+
+## Question 2:
+### Compare your decision tree model and your logistic regression model. Do they attribute high importance to the same factors? How do you intepret each model to explain the referendum vote?
+```{r}
+Brexit_Model_predict = predict(Brexit_Model, newdata = brexit_data, type = "response")
+Brexit_Model_prediction <- ifelse(Brexit_Model_predict > 0.5, TRUE, FALSE)
+print(paste("Brexit Model Accuracy:", sum(brexit_data$voteBrexit == Brexit_Model_prediction)/344))
+```
+
+Looking upon our regression model of five-inputs we can see the confidence intervals and AIC values attribute the highest importance to the following order of variables:
+
+1. Higher Education
+2. Social Grade
+3. Median Age
+4. Median Income
+5. Not Born in UK
+
+By making use of the $\textbf{carat}$ package we can use the $\textbf{varImp()}$ function to return the variable importance for our regression model.
+
+```{r}
+varImp(Brexit_Model)
+```
+From reading off the values given by $\textbf{varImp()}$ applied to our logistic model we can see this produces the same order as our findings for Part 1 Q(2&3).
+
+```{r}
+varImp(brexit_tree)
+```
+
+Similarly, by inspecting the decision tree we can see that 'Higher Education' and 'Social Grade' have the strongest effect on the 'voteBrexit' outcome. However in this model the next three variables of importance are 'Median Income', 'Not Born in UK' and 'Median Age'. Giving the order of importance for the decision tree as:
+
+1. Higher Education
+2. Social Grade
+3. Median Income
+4. Not Born in UK
+5. Median Age
+
+Comparing accuracies between the two, we can see the model predicts the 'brexitVote' with an accuraccy of $86.62\%$. This is marginally better than the results produced by the decision tree of $84.89\%$.
+
+For our logistic regression model, this uses all variable inputs to predict the 'voteBrexit' outcome we have shown each input variable carries information as to whether an area has voted to leave or remain in the EU. However each characteristic is of course given a greater/lesser weighting than others which are illlustrated with the coefficient estimate confidence intervals, these indicate in which direction and the how strongly we expect each variable to effect our prediciton as illustrated in the list above. 
+
+Our decision tree model on the otherhand only uses three of the five variables to accurately predict whether an area is likely to remain within or leave the EU. Of these three it uses 'Higher Education' twice to classify 71% of the dataset. First it catagorises 19% of the dataset as 'remain' with 'Higher Education being over 47%'. It is worth noting that subsequent splits in the tree are now performed upon subsets of the data and so they will not indicate the lowest Gini Impurity of the dataset as a whole. The second time the tree splits on 'Higher Education less than 31%' this catagorises over 52% of the population to voting 'leave'. Similarly on the final split, 'Social Grade'(the variable of second highest importance) classified a further 26% of the dataset, this was by catagorising 21% of the dataset as 'leave' for those areas with 'abc1 < 0.41' and 5% of the dataset for the converse.
+
+From both models we can conclude that both 'Higher Education' and 'Social Grade' attributed strongest to the referendum outcome. For the case of the decision tree we see that all the areas classified as 'leave' (which is also the majority) were classified directly from using these variables being less than some value ('abc1 < 0.41' or 'Higher Education less than 31%'). This could imply that those with of lower percentages of 'Higher Education',  'Social Grade' were most easily catagorised which in turn could indicate a greater contribution to the overall 'voteBrexit' outcome.
+
+## Question 3:
+### Which model would you use if you were explaining the results for a newspaper article, and why?
+Given the choice of which model to use when explaining a newspaper article, the choice would be dependant on what message I may want to convey to my audience. Taking an objective approach I would choose the logistic regression model as this produces the higher accuraccy of the two and the magnitude of the effect these variables produce on the 'voteBrexit' are easily shown. 
+
+However if my agenda was to provide a statement showing that a certain group/demographic characteristic produced an under/overwhelming effect on the 'voteBrexit' outcome; I may for example, want to choose the model which attributes less importance to the 'Median Age' demographic characteristic for some reason or another. The decision tree did provide a lower accurracy than the regression model but this could be changed by adjusting the $\textbf{control = rpart.control(cp = VALUE)}$ parameter. This can increase/decrease the complexity of the model which will effect both its accuracy and ability to fit to unseen data. It is worth noting that the classification process for decision trees is easier to interpret for the less mathematically adept.
+
+In conclusion I would likely use the model which provided the greatest accuracy (logistic regression) as this arguably provides the best model so long as it has not begun to overfit. This decision however could be influenced by my target audience as some models are easier to interpret than others and attribute different levels of importance to variables.
+
